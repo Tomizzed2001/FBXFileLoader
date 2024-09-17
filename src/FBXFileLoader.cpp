@@ -1,3 +1,5 @@
+#include "FBXFileLoader.hpp"
+
 #include <fbxsdk.h>
 #include <filesystem>
 #include <iostream>
@@ -14,10 +16,7 @@
 #pragma comment (lib, "C:\\Program Files\\Autodesk\\FBX\\FBX SDK\\2020.3.7\\lib\\x64\\release\\zlib-md.lib")
 #endif
 
-int main() {
-
-    // The name of the fbx file to open
-    const char* lFilename = "SunTemple/SunTemple.fbx";
+Scene loadFBXFile(const char* filename){
 
     // Create the FBX Memory Manager
     FbxManager* memoryManager = FbxManager::Create();
@@ -38,7 +37,7 @@ int main() {
     FbxImporter* importer = FbxImporter::Create(memoryManager, "");
 
     // Use the first argument as the filename for the importer.
-    if (!importer->Initialize(lFilename, -1, memoryManager->GetIOSettings())) {
+    if (!importer->Initialize(filename, -1, memoryManager->GetIOSettings())) {
         throw std::runtime_error("Failed to initialise the importer.");
     }
 
@@ -52,5 +51,7 @@ int main() {
     // Destroy the SDK manager and all the other objects it was handling.
     memoryManager->Destroy();
 
-    return 0;
+    Scene outputScene;
+
+    return outputScene;
 }
