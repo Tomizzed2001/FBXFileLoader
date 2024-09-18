@@ -16,7 +16,7 @@ workspace "FBXFileLoader"
     filter "*"
 
     -- Include files (The default directory)
-    includedirs{"C:/Program Files/Autodesk/FBX/FBX SDK/2020.3.7/include"}
+    includedirs{"C:/Program Files/Autodesk/FBX/FBX SDK/2020.3.7/include", "ExternalLibraries/glm"}
 
 project "FileLoader"
     kind "ConsoleApp"
