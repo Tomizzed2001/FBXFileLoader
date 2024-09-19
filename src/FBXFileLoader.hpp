@@ -1,7 +1,8 @@
 #pragma once
 #include <vector>
-#include <glm.hpp>
+#include <functional>
 
+#include <glm.hpp>
 #include <fbxsdk.h>
 
 /// A set of structs used to hold the information from the FBX file.
@@ -65,4 +66,4 @@ void getChildren(FbxNode* node, Scene& outputScene);
 /// </summary>
 /// <param name="inMesh">An FbxMesh</param>
 /// <returns>A mesh data structure</returns>
-Mesh createMesh(FbxMesh* inMesh);
+Mesh createMeshData(FbxMesh* inMesh);

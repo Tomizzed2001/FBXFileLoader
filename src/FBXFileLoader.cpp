@@ -1,9 +1,11 @@
 #include "FBXFileLoader.hpp"
 
 #include "gtx/string_cast.hpp"
+#include "gtx/hash.hpp"
 
 #include <filesystem>
 #include <iostream>
+#include <unordered_map> 
 
 // Link the libraries necessary for the execution mode
 // The file paths are based on the default location for the 2020.3.7 version of the SDK
@@ -68,16 +70,16 @@ Scene loadFBXFile(const char* filename){
 void getChildren(FbxNode* node, Scene& outputScene) {
     // Get the number of children in the node
     int numChildren = node->GetChildCount();
-    std::cout << "Name: " << node->GetName() << " Number of children: " << numChildren << std::endl;
+    //std::cout << "Name: " << node->GetName() << " Number of children: " << numChildren << std::endl;
 
     // Check if the node has a mesh component
     FbxMesh* nodeMesh = node->GetMesh();
     if (nodeMesh == NULL) {
-        std::cout << "Node has no mesh component." << std::endl;
+        //std::cout << "Node has no mesh component." << std::endl;
     }
     else {
         // Create the mesh data
-        outputScene.meshes.emplace_back(createMesh(nodeMesh));
+        outputScene.meshes.emplace_back(createMeshData(nodeMesh));
         
     }
 
@@ -93,69 +95,95 @@ void getChildren(FbxNode* node, Scene& outputScene) {
     }
 }
 
-Mesh createMesh(FbxMesh* inMesh) {
+Mesh createMeshData(FbxMesh* inMesh) {
     Mesh outMesh;
 
     // Get the number of triangles in the mesh and all the triangles
     int numTriangles = inMesh->GetPolygonCount();
-    std::cout << "Number of triangles: " << numTriangles << std::endl;
 
     // Get the number of vertices and all vertices
     int numVertices = inMesh->GetControlPointsCount();
     FbxVector4* fbxVertices = inMesh->GetControlPoints();
-    std::cout << "Number of vertices: " << numVertices << std::endl;
 
-    // Get the number of indices and all inddices
+    // Get the number of indices and all indices
     int numIndices = inMesh->GetPolygonVertexCount();
     int* indices = inMesh->GetPolygonVertices();
-    std::cout << "Number of indices: " << numIndices << std::endl;
 
-    // Place each of the indices into the mesh data structure
-    for (int i = 0; i < numIndices; i++) {
-        // Place the indices in the array (-1 so as it starts at 1 not 0)
-        outMesh.vertexIndices.emplace_back(indices[i] - 1);
-        /*  DEBUG LINE
-        if (numTriangles < 20) {
-            std::cout << indices[i] << ", ";
-        }
-        */
+    // Get the normals for the mesh
+    FbxArray<FbxVector4> normals;
+    // Generate the normals (if there is none) and store them
+    if (!(inMesh->GenerateNormals() && inMesh->GetPolygonVertexNormals(normals))) {       
+        throw std::runtime_error("Failed to gather mesh normals");
     }
-    //std::cout << std::endl;
 
-    // For each of the vertices (control points in the mesh)
-    for (int i = 0; i < numVertices; i++) {
-        // Get the vertex position and add it to the array
-        outMesh.vertexPositions.emplace_back(glm::vec3(fbxVertices[i][0], fbxVertices[i][1], fbxVertices[i][2]));
-        // For each of the normals in the mesh
-        int numNormals = inMesh->GetElementNormalCount();
-        for (int j = 0; j < numNormals; j++) {
-            // Get the vertex normal(s)
-            FbxGeometryElementNormal* normals = inMesh->GetElementNormal(j);
-            // If normals are defined per vertex / control point
-            if (normals->GetMappingMode() == FbxGeometryElement::eByControlPoint)
-            {
-                // If normals are indexed the same as vertex indices
-                if (normals->GetReferenceMode() == FbxGeometryElement::eDirect) {
-                    // Finally get the normal
-                    FbxVector4 normal = normals->GetDirectArray().GetAt(i);
-                    // Push the normal into the output mesh
-                    outMesh.vertexNormals.emplace_back(glm::vec3(normal[0], normal[1], normal[2]));
-                    /* DEBUG LINE
-                    if (numTriangles < 20) {
-                        std::cout << glm::to_string(glm::vec3(normal[0], normal[1], normal[2])) << ", ";
-                    }
-                    */
-                }
+    // Check for duplicate vertices and re-index them
+    std::vector<int> seenIndex(numIndices, -1);
+    std::unordered_map<glm::vec3, std::uint32_t> seenVertices;
+
+    for (int i = 0; i < numIndices; i++) {  // For each index
+        // Get the index
+        int index = indices[i];
+        // If index has already been seen and re-indexed, use that one
+        if (seenIndex[index] != -1) {
+            outMesh.vertexIndices.emplace_back(seenIndex[index]);
+        }
+        // Index has not been found so find the vertex and re-index accordingly
+        else {
+            // Get the vertex position
+            glm::vec3 vertex = glm::vec3(fbxVertices[index][0], fbxVertices[index][1], fbxVertices[index][2]);
+            
+            // Get the vertex normal
+            glm::vec3 normal = glm::vec3(normals[index][0], normals[index][1], normals[index][2]);
+
+            // Check if that position has been seen before
+            if (seenVertices.find(vertex) == seenVertices.end()) {
+                // Add the new vertex position and normal
+                outMesh.vertexPositions.emplace_back(vertex);
+                outMesh.vertexNormals.emplace_back(normal);
+            
+                // Store the newly assigned index
+                std::uint32_t newIndex = outMesh.vertexPositions.size() - 1;
+                outMesh.vertexIndices.emplace_back(newIndex);
+                
+                // Add it to the map of seen vertices
+                seenVertices[vertex] = newIndex;
+                
+                // Note that the index has been seen and remapped to a new index
+                seenIndex[index] = newIndex;
+            }
+            else {
+                // Get the already assigned index
+                std::uint32_t newIndex = seenVertices.at(vertex);
+                
+                // Store the index
+                outMesh.vertexIndices.emplace_back(newIndex);
+                
+                // Map the new index to the seen indices
+                seenIndex[index] = newIndex;
             }
         }
-        /*  DEBUG LINE
-        if (numTriangles < 20) {
-            std::cout << glm::to_string(vertexPosition) << ", ";
-        }
-        */
     }
-    //std::cout << std::endl;
+
+
+    if (numTriangles < 31) {
+        std::cout << "Indices: ";
+        for (size_t i = 0; i < outMesh.vertexIndices.size(); i++) {
+            std::cout << outMesh.vertexIndices[i] << " ,";
+        }
+        std::cout << std::endl;
+
+        std::cout << "Positions: ";
+        for (size_t i = 0; i < outMesh.vertexPositions.size(); i++) {
+            std::cout << glm::to_string(outMesh.vertexPositions[i]) << ", ";
+        }
+        std::cout << std::endl;
+
+        std::cout << "Normals: ";
+        for (size_t i = 0; i < outMesh.vertexNormals.size(); i++) {
+            std::cout << glm::to_string(outMesh.vertexNormals[i]) << ", ";
+        }
+        std::cout << std::endl;
+    }
 
     return outMesh;
 }
-
