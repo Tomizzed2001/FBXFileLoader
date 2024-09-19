@@ -3,7 +3,6 @@
 #include "gtx/string_cast.hpp"
 #include "gtx/hash.hpp"
 
-#include <filesystem>
 #include <iostream>
 #include <unordered_map> 
 
@@ -59,7 +58,10 @@ Scene loadFBXFile(const char* filename){
     FbxNode* rootNode = scene->GetRootNode();
     
     Scene outputScene;
+    std::unordered_map<std::string, std::uint32_t> materialMap;
     getChildren(rootNode, outputScene);
+
+    std::cout << outputScene.meshes.size() << std::endl;
 
     // Destroy the SDK manager and all the other objects it was handling.
     memoryManager->Destroy();
@@ -70,17 +72,42 @@ Scene loadFBXFile(const char* filename){
 void getChildren(FbxNode* node, Scene& outputScene) {
     // Get the number of children in the node
     int numChildren = node->GetChildCount();
-    //std::cout << "Name: " << node->GetName() << " Number of children: " << numChildren << std::endl;
+    std::cout << "Name: " << node->GetName() << " Number of children: " << numChildren << " Number of materials: " << node->GetMaterialCount() << std::endl;
+    
+    // Check for materials
+    uint32_t materialIndex = -1;
+    if (node->GetMaterialCount() > 0) {
+        // Only get the first material for now and apply it to the entire mesh.
+        FbxSurfaceMaterial* material = node->GetMaterial(0);
+        // Check if the material data has already been made
+        for (size_t i = 0; i < outputScene.materials.size(); i++) {
+            if (outputScene.materials[i].materialName == material->GetName()) {
+                materialIndex = i;
+                break;
+            }
+        }
+        // If material has not been found create one for it
+        if (materialIndex == -1) {
+            outputScene.materials.emplace_back(createMaterialData(material));
+            materialIndex = outputScene.materials.size() - 1;
+        }
+
+        std::cout << "Material name: " << outputScene.materials[materialIndex].materialName << " Material index: " << materialIndex << std::endl;
+
+    }
+    else {
+        std::cout << "Node has no material component." << std::endl;
+    }
+    
 
     // Check if the node has a mesh component
     FbxMesh* nodeMesh = node->GetMesh();
     if (nodeMesh == NULL) {
-        //std::cout << "Node has no mesh component." << std::endl;
+        std::cout << "Node has no mesh component." << std::endl;
     }
     else {
         // Create the mesh data
-        outputScene.meshes.emplace_back(createMeshData(nodeMesh));
-        
+        outputScene.meshes.emplace_back(createMeshData(nodeMesh, materialIndex));
     }
 
     // If there is no children do not recurse
@@ -95,9 +122,12 @@ void getChildren(FbxNode* node, Scene& outputScene) {
     }
 }
 
-Mesh createMeshData(FbxMesh* inMesh) {
+Mesh createMeshData(FbxMesh* inMesh, uint32_t materialIndex) {
     Mesh outMesh;
 
+    // Add the material index to the mesh data structure
+    outMesh.materialIndex = materialIndex;
+    
     // Get the number of triangles in the mesh and all the triangles
     int numTriangles = inMesh->GetPolygonCount();
 
@@ -114,6 +144,15 @@ Mesh createMeshData(FbxMesh* inMesh) {
     // Generate the normals (if there is none) and store them
     if (!(inMesh->GenerateNormals() && inMesh->GetPolygonVertexNormals(normals))) {       
         throw std::runtime_error("Failed to gather mesh normals");
+    }
+
+    // Get the uvs for the mesh 
+    // For now use only the first uv set in the mesh
+    FbxStringList uvSets;
+    inMesh->GetUVSetNames(uvSets);
+    FbxArray<FbxVector2> uvs;
+    if (!inMesh->GetPolygonVertexUVs(uvSets.GetStringAt(0), uvs)) {
+        throw std::runtime_error("Failed to gather mesh texture coordinates.");
     }
 
     // Check for duplicate vertices and re-index them
@@ -135,11 +174,15 @@ Mesh createMeshData(FbxMesh* inMesh) {
             // Get the vertex normal
             glm::vec3 normal = glm::vec3(normals[index][0], normals[index][1], normals[index][2]);
 
+            // Get the vertex texture co-ordinate
+            glm::vec2 uv = glm::vec2(uvs[index][0], uvs[index][1]);
+
             // Check if that position has been seen before
             if (seenVertices.find(vertex) == seenVertices.end()) {
                 // Add the new vertex position and normal
                 outMesh.vertexPositions.emplace_back(vertex);
                 outMesh.vertexNormals.emplace_back(normal);
+                outMesh.vertexTextureCoords.emplace_back(uv);
             
                 // Store the newly assigned index
                 std::uint32_t newIndex = outMesh.vertexPositions.size() - 1;
@@ -163,9 +206,11 @@ Mesh createMeshData(FbxMesh* inMesh) {
             }
         }
     }
-
-
+    
+    /* DEBUG INFO
     if (numTriangles < 31) {
+        std::cout << "Material Index: " << outMesh.materialIndex << std::endl;
+
         std::cout << "Indices: ";
         for (size_t i = 0; i < outMesh.vertexIndices.size(); i++) {
             std::cout << outMesh.vertexIndices[i] << " ,";
@@ -183,7 +228,23 @@ Mesh createMeshData(FbxMesh* inMesh) {
             std::cout << glm::to_string(outMesh.vertexNormals[i]) << ", ";
         }
         std::cout << std::endl;
+
+        std::cout << "Texture Coords: ";
+        for (size_t i = 0; i < outMesh.vertexTextureCoords.size(); i++) {
+            std::cout << glm::to_string(outMesh.vertexTextureCoords[i]) << ", ";
+        }
+        std::cout << std::endl;
     }
+    */
 
     return outMesh;
+}
+
+Material createMaterialData(FbxSurfaceMaterial* inMaterial) {
+    Material outMaterial;
+
+    // Get the material name and place it in the struct
+    outMaterial.materialName = inMaterial->GetName();
+
+    return outMaterial;
 }

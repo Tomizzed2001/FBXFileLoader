@@ -20,7 +20,7 @@ struct Texture
 /// </summary>
 struct Material
 {
-
+	std::string materialName;
 };
 
 /// <summary>
@@ -62,8 +62,15 @@ Scene loadFBXFile(const char* filename);
 void getChildren(FbxNode* node, Scene& outputScene);
 
 /// <summary>
-/// Creates and populates a mesh data structure given an Fbx node
+/// Creates and populates a mesh data structure given an Fbx mesh
 /// </summary>
 /// <param name="inMesh">An FbxMesh</param>
 /// <returns>A mesh data structure</returns>
-Mesh createMeshData(FbxMesh* inMesh);
+Mesh createMeshData(FbxMesh* inMesh, uint32_t materialIndex);
+
+/// <summary>
+/// Creates and populates a material data structure given an Fbx material
+/// </summary>
+/// <param name="inMaterial">Fbx Material</param>
+/// <returns>Material data structure</returns>
+Material createMaterialData(FbxSurfaceMaterial* inMaterial);
