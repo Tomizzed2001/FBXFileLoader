@@ -61,7 +61,8 @@ Scene loadFBXFile(const char* filename){
     std::unordered_map<std::string, std::uint32_t> materialMap;
     getChildren(rootNode, outputScene);
 
-    std::cout << outputScene.meshes.size() << std::endl;
+    std::cout << "Number of meshes: " << outputScene.meshes.size() << std::endl;
+    std::cout << "Number of materials: " << outputScene.materials.size() << std::endl;
 
     // Destroy the SDK manager and all the other objects it was handling.
     memoryManager->Destroy();
@@ -245,6 +246,26 @@ Material createMaterialData(FbxSurfaceMaterial* inMaterial) {
 
     // Get the material name and place it in the struct
     outMaterial.materialName = inMaterial->GetName();
+
+    if (inMaterial->GetClassId().Is(FbxSurfacePhong::ClassId)) {
+        std::cout << "Phong available" << std::endl;
+        // Get the material as a phong material
+        FbxSurfacePhong* phongMaterial = ((FbxSurfacePhong*)inMaterial);
+        // Check for diffuse texture
+        
+        if (phongMaterial->Diffuse.GetSrcObject(0)) {
+            // Theres a diffuse texture
+            FbxFileTexture* diffuseTexture = ((FbxFileTexture*)phongMaterial->Diffuse.GetSrcObject(0));
+            std::cout << diffuseTexture->GetFileName() << std::endl;
+        }
+        
+    }
+    else if (inMaterial->GetClassId().Is(FbxSurfaceLambert::ClassId)) {
+        std::cout << "Lambertian available" << std::endl;
+    }
+    else {
+        std::cout << "What is this" << std::endl;
+    }
 
     return outMaterial;
 }

@@ -20,7 +20,7 @@ struct Texture
 /// </summary>
 struct Material
 {
-	std::string materialName;
+	std::string materialName;	// Mostly for DEBUG
 };
 
 /// <summary>
@@ -28,10 +28,10 @@ struct Material
 /// </summary>
 struct Mesh
 {
-	std::uint32_t materialIndex;
-
-	std::vector<glm::vec3> vertexPositions;
-	std::vector<glm::vec2> vertexTextureCoords;
+	std::uint32_t materialIndex;	// Relates to material
+		
+	std::vector<glm::vec3> vertexPositions;		
+	std::vector<glm::vec2> vertexTextureCoords;		
 	std::vector<glm::vec3> vertexNormals;
 
 	std::vector<std::uint32_t> vertexIndices;
