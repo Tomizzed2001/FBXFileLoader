@@ -12,7 +12,7 @@
 /// </summary>
 struct Texture
 {
-
+	std::string	filePath;
 };
 
 /// <summary>
@@ -21,6 +21,10 @@ struct Texture
 struct Material
 {
 	std::string materialName;	// Mostly for DEBUG
+
+	std::uint32_t diffuseTextureID;
+	std::uint32_t specularTextureID;
+
 };
 
 /// <summary>
@@ -72,5 +76,14 @@ Mesh createMeshData(FbxMesh* inMesh, uint32_t materialIndex);
 /// Creates and populates a material data structure given an Fbx material
 /// </summary>
 /// <param name="inMaterial">Fbx Material</param>
+/// <param name="outputScene">The output data for the program</param>
 /// <returns>Material data structure</returns>
-Material createMaterialData(FbxSurfaceMaterial* inMaterial);
+Material createMaterialData(FbxSurfaceMaterial* inMaterial, Scene& outputScene);
+
+/// <summary>
+/// Creates a texture and adds it to the output scene if it does not already exist
+/// </summary>
+/// <param name="texture">The texture to look for / add</param>
+/// <param name="outputScene">The output data for the program</param>
+/// <returns>The ID of the texture in the output scene</returns>
+std::uint32_t createTexture(FbxFileTexture* texture, Scene& outputScene);

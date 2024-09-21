@@ -74,7 +74,7 @@ void getChildren(FbxNode* node, Scene& outputScene) {
     // Get the number of children in the node
     int numChildren = node->GetChildCount();
     std::cout << "Name: " << node->GetName() << " Number of children: " << numChildren << " Number of materials: " << node->GetMaterialCount() << std::endl;
-    
+
     // Check for materials
     uint32_t materialIndex = -1;
     if (node->GetMaterialCount() > 0) {
@@ -89,7 +89,7 @@ void getChildren(FbxNode* node, Scene& outputScene) {
         }
         // If material has not been found create one for it
         if (materialIndex == -1) {
-            outputScene.materials.emplace_back(createMaterialData(material));
+            outputScene.materials.emplace_back(createMaterialData(material, outputScene));
             materialIndex = outputScene.materials.size() - 1;
         }
 
@@ -241,23 +241,39 @@ Mesh createMeshData(FbxMesh* inMesh, uint32_t materialIndex) {
     return outMesh;
 }
 
-Material createMaterialData(FbxSurfaceMaterial* inMaterial) {
+Material createMaterialData(FbxSurfaceMaterial* inMaterial, Scene& outputScene) {
     Material outMaterial;
 
     // Get the material name and place it in the struct
     outMaterial.materialName = inMaterial->GetName();
 
     if (inMaterial->GetClassId().Is(FbxSurfacePhong::ClassId)) {
+        /* DEBUG LINE */
         std::cout << "Phong available" << std::endl;
+        
         // Get the material as a phong material
         FbxSurfacePhong* phongMaterial = ((FbxSurfacePhong*)inMaterial);
-        // Check for diffuse texture
         
+        // Check for diffuse texture
         if (phongMaterial->Diffuse.GetSrcObject(0)) {
-            // Theres a diffuse texture
+            // There is a diffuse texture
             FbxFileTexture* diffuseTexture = ((FbxFileTexture*)phongMaterial->Diffuse.GetSrcObject(0));
-            std::cout << diffuseTexture->GetFileName() << std::endl;
+
+            // Add the index to the material
+            outMaterial.diffuseTextureID = createTexture(diffuseTexture, outputScene);
         }
+
+        // NOTE: The specular is the roughness and metalness it seems
+        // Check for specular texture
+        if (phongMaterial->Specular.GetSrcObject(0)) {
+            // There is a specular texture
+            FbxFileTexture* specularTexture = ((FbxFileTexture*)phongMaterial->Specular.GetSrcObject(0));
+
+            // Add the index to the material
+            outMaterial.specularTextureID = createTexture(specularTexture, outputScene);
+        }
+
+
         
     }
     else if (inMaterial->GetClassId().Is(FbxSurfaceLambert::ClassId)) {
@@ -268,4 +284,28 @@ Material createMaterialData(FbxSurfaceMaterial* inMaterial) {
     }
 
     return outMaterial;
+}
+
+std::uint32_t createTexture(FbxFileTexture* texture, Scene& outputScene) {
+    /* DEBUG LINE */
+    std::cout << texture->GetFileName() << std::endl;
+
+    // Check if the diffuse texture already exists in the output scene
+    int textureIndex = -1;
+    for (size_t i = 0; i < outputScene.textures.size(); i++) {
+        if (outputScene.textures[i].filePath == texture->GetFileName()) {
+            return i;
+        }
+    }
+
+    // If texture index has not been found create texture and add it to the output
+    if (textureIndex == -1) {
+        Texture newTexture;
+        newTexture.filePath = texture->GetFileName();
+        outputScene.textures.emplace_back(newTexture);
+        // Remember the ID
+        textureIndex = outputScene.textures.size() - 1;
+    }
+
+    return textureIndex;
 }
