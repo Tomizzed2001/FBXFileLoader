@@ -209,7 +209,10 @@ Mesh createMeshData(FbxMesh* inMesh, uint32_t materialIndex) {
             }
         }
     }
-    
+
+    // Calculate the per vertex tangents
+    calculateTangents(outMesh.vertexIndices, outMesh.vertexPositions, outMesh.vertexTextureCoords, outMesh.vertexNormals);
+
     /* DEBUG INFO
     if (numTriangles < 31) {
         std::cout << "Material Index: " << outMesh.materialIndex << std::endl;
@@ -333,3 +336,82 @@ std::uint32_t createTexture(FbxFileTexture* texture, Scene& outputScene) {
 
     return textureIndex;
 }
+
+std::vector<glm::vec4> calculateTangents(
+    std::vector<std::uint32_t>& indices, 
+    std::vector<glm::vec3>& positions, 
+    std::vector<glm::vec2>& uvs, 
+    std::vector<glm::vec3>& normals) {
+    
+    // Initialise an array to store all the different tangents for each vertex
+    std::vector<std::vector<glm::vec3>> vertexTriangleTangents(positions.size(), std::vector<glm::vec3>());
+    std::vector<std::vector<glm::vec3>> vertexTriangleBitangents(positions.size(), std::vector<glm::vec3>());
+    
+    // Visit each triangle in the mesh
+    for (size_t i = 0; i < indices.size(); i += 3) {
+        // Get the positions of all points in the triangle v0, v1, v2 
+        glm::vec3 v0, v1, v2;
+        v0 = positions[indices[i]];
+        v1 = positions[indices[i+1]];
+        v2 = positions[indices[i+2]];
+        
+        // and get the corresponding texture coordinates
+        glm::vec2 uv0, uv1, uv2;
+        uv0 = uvs[indices[i]];
+        uv1 = uvs[indices[i+1]];
+        uv2 = uvs[indices[i+2]];
+
+        // Get the coordinates in terms of v0
+        glm::vec3 AB, AC;
+        AB = v1 - v0;
+        AC = v2 - v0;
+
+        // again with the texture coordinates
+        glm::vec2 uvAB, uvAC;
+        uvAB = uv1 - uv0;
+        uvAC = uv2 - uv0;
+
+        // Solve to find the unnormalized tangent vector of the triangle
+        glm::vec3 tangent = (1 / ((uvAB.x * uvAC.y) - (uvAC.x - uvAB.y))) * ((uvAC.y * AB) + (-uvAB.y * AC));
+        glm::vec3 bitangent = (1 / ((uvAB.x * uvAC.y) - (uvAC.x - uvAB.y))) * ((-uvAC.x * AB) + (uvAB.x * AC));
+
+
+        // Tangent is the same for all vertices of the triangle so add to all of them
+        vertexTriangleTangents[indices[i]].emplace_back(tangent);
+        vertexTriangleTangents[indices[i + 1]].emplace_back(tangent);
+        vertexTriangleTangents[indices[i + 2]].emplace_back(tangent);
+
+        vertexTriangleBitangents[indices[i]].emplace_back(bitangent);
+        vertexTriangleBitangents[indices[i + 1]].emplace_back(bitangent);
+        vertexTriangleBitangents[indices[i + 2]].emplace_back(bitangent);
+    }
+
+    // Average the tangents for all vertices
+    std::vector<glm::vec4> tangents;
+    for (size_t i = 0; i < vertexTriangleTangents.size(); i++) {
+        glm::vec3 tangent = glm::vec3(0,0,0);
+        glm::vec3 biTangent = glm::vec3(0,0,0);
+        for (size_t j = 0; j < vertexTriangleTangents[i].size(); j++) {
+            tangent = tangent + vertexTriangleTangents[i][j];
+            biTangent = biTangent + vertexTriangleBitangents[i][j];
+        }
+
+        // Orthogonalize the tangent and normalise the output
+        tangent = glm::normalize(tangent - normals[i] * glm::dot(normals[i], tangent));
+
+        // Calculate the handedness of the bitangent
+        int handedness;
+        if (glm::dot(glm::cross(normals[i], tangent), biTangent) < 0) {
+            handedness = -1;
+        }
+        else {
+            handedness = 1;
+        }
+
+        tangents.emplace_back(glm::vec4(tangent, handedness));
+    }
+
+    return tangents;
+
+}
+

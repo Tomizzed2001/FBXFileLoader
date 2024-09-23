@@ -41,6 +41,7 @@ struct Mesh
 	std::vector<glm::vec3> vertexPositions;		
 	std::vector<glm::vec2> vertexTextureCoords;		
 	std::vector<glm::vec3> vertexNormals;
+	std::vector<glm::vec4> vertexTangents;
 
 	std::vector<std::uint32_t> vertexIndices;
 };
@@ -91,3 +92,17 @@ Material createMaterialData(FbxSurfaceMaterial* inMaterial, Scene& outputScene);
 /// <param name="outputScene">The output data for the program</param>
 /// <returns>The ID of the texture in the output scene</returns>
 std::uint32_t createTexture(FbxFileTexture* texture, Scene& outputScene);
+
+/// <summary>
+/// Calculates the vertex tangents for a given mesh
+/// </summary>
+/// <param name="indices">The indices of the mesh</param>
+/// <param name="positions">The vertex positions</param>
+/// <param name="uvs">The vertex texture coordinates</param>
+/// <param name="normals">The per vertex normals</param>
+/// <returns>A set of tangents with the 4th float containing the handedness of the bitangent</returns>
+std::vector<glm::vec4> calculateTangents(
+	std::vector<std::uint32_t>& indices,
+	std::vector<glm::vec3>& positions,
+	std::vector<glm::vec2>& uvs,
+	std::vector<glm::vec3>& normals);
