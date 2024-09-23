@@ -24,6 +24,10 @@ struct Material
 
 	std::uint32_t diffuseTextureID;
 	std::uint32_t specularTextureID;
+	std::uint32_t normalTextureID;
+	std::uint32_t emissiveTextureID;
+
+	bool isAlphaMapped = false;
 
 };
 

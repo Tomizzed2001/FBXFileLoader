@@ -61,8 +61,10 @@ Scene loadFBXFile(const char* filename){
     std::unordered_map<std::string, std::uint32_t> materialMap;
     getChildren(rootNode, outputScene);
 
+    std::cout << std::endl;
     std::cout << "Number of meshes: " << outputScene.meshes.size() << std::endl;
     std::cout << "Number of materials: " << outputScene.materials.size() << std::endl;
+    std::cout << std::endl;
 
     // Destroy the SDK manager and all the other objects it was handling.
     memoryManager->Destroy();
@@ -253,7 +255,7 @@ Material createMaterialData(FbxSurfaceMaterial* inMaterial, Scene& outputScene) 
         
         // Get the material as a phong material
         FbxSurfacePhong* phongMaterial = ((FbxSurfacePhong*)inMaterial);
-        
+
         // Check for diffuse texture
         if (phongMaterial->Diffuse.GetSrcObject(0)) {
             // There is a diffuse texture
@@ -261,6 +263,12 @@ Material createMaterialData(FbxSurfaceMaterial* inMaterial, Scene& outputScene) 
 
             // Add the index to the material
             outMaterial.diffuseTextureID = createTexture(diffuseTexture, outputScene);
+
+            // Check if the diffuse texture is alpha mapped
+            FbxTexture* alphaTexture = ((FbxTexture*)phongMaterial->Diffuse.GetSrcObject(0));
+            if (alphaTexture->Alpha < 1) {
+                outMaterial.isAlphaMapped = true;
+            }
         }
 
         // NOTE: The specular is the roughness and metalness it seems
@@ -273,7 +281,23 @@ Material createMaterialData(FbxSurfaceMaterial* inMaterial, Scene& outputScene) 
             outMaterial.specularTextureID = createTexture(specularTexture, outputScene);
         }
 
+        // Check for normal texture
+        if (phongMaterial->NormalMap.GetSrcObject(0)) {
+            // There is a specular texture
+            FbxFileTexture* normalTexture = ((FbxFileTexture*)phongMaterial->NormalMap.GetSrcObject(0));
 
+            // Add the index to the material
+            outMaterial.emissiveTextureID = createTexture(normalTexture, outputScene);
+        }
+
+        // Check for emissive texture
+        if (phongMaterial->Emissive.GetSrcObject(0)) {
+            // There is a specular texture
+            FbxFileTexture* emissiveTexture = ((FbxFileTexture*)phongMaterial->Emissive.GetSrcObject(0));
+
+            // Add the index to the material
+            outMaterial.emissiveTextureID = createTexture(emissiveTexture, outputScene);
+        }
         
     }
     else if (inMaterial->GetClassId().Is(FbxSurfaceLambert::ClassId)) {
