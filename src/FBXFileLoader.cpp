@@ -211,7 +211,7 @@ Mesh createMeshData(FbxMesh* inMesh, uint32_t materialIndex) {
     }
 
     // Calculate the per vertex tangents
-    calculateTangents(outMesh.vertexIndices, outMesh.vertexPositions, outMesh.vertexTextureCoords, outMesh.vertexNormals);
+    outMesh.vertexTangents = calculateTangents(outMesh.vertexIndices, outMesh.vertexPositions, outMesh.vertexTextureCoords, outMesh.vertexNormals);
 
     /* DEBUG INFO
     if (numTriangles < 31) {
@@ -273,6 +273,9 @@ Material createMaterialData(FbxSurfaceMaterial* inMaterial, Scene& outputScene) 
                 outMaterial.isAlphaMapped = true;
             }
         }
+        else {
+            outMaterial.diffuseTextureID = 0xffffffff;
+        }
 
         // NOTE: The specular is the roughness and metalness it seems
         // Check for specular texture
@@ -283,6 +286,9 @@ Material createMaterialData(FbxSurfaceMaterial* inMaterial, Scene& outputScene) 
             // Add the index to the material
             outMaterial.specularTextureID = createTexture(specularTexture, outputScene);
         }
+        else {
+            outMaterial.specularTextureID = 0xffffffff;
+        }
 
         // Check for normal texture
         if (phongMaterial->NormalMap.GetSrcObject(0)) {
@@ -290,7 +296,10 @@ Material createMaterialData(FbxSurfaceMaterial* inMaterial, Scene& outputScene) 
             FbxFileTexture* normalTexture = ((FbxFileTexture*)phongMaterial->NormalMap.GetSrcObject(0));
 
             // Add the index to the material
-            outMaterial.emissiveTextureID = createTexture(normalTexture, outputScene);
+            outMaterial.normalTextureID = createTexture(normalTexture, outputScene);
+        } 
+        else {
+            outMaterial.normalTextureID = 0xffffffff;
         }
 
         // Check for emissive texture
@@ -300,6 +309,9 @@ Material createMaterialData(FbxSurfaceMaterial* inMaterial, Scene& outputScene) 
 
             // Add the index to the material
             outMaterial.emissiveTextureID = createTexture(emissiveTexture, outputScene);
+        } 
+        else {
+            outMaterial.emissiveTextureID = 0xffffffff;
         }
         
     }
