@@ -74,8 +74,10 @@ namespace fbx {
 	/// Creates and populates a mesh data structure given an Fbx mesh
 	/// </summary>
 	/// <param name="inMesh">An FbxMesh</param>
+	/// <param name="materialIndex">The material index from the node</param>
+	/// <param name="transform">The node transform matrix</param>
 	/// <returns>A mesh data structure</returns>
-	Mesh createMeshData(FbxMesh* inMesh, uint32_t materialIndex);
+	Mesh createMeshData(FbxMesh* inMesh, uint32_t materialIndex, glm::mat4 transform);
 
 	/// <summary>
 	/// Creates and populates a material data structure given an Fbx material

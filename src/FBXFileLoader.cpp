@@ -1,5 +1,6 @@
 #include "FBXFileLoader.hpp"
 
+#include "gtx/quaternion.hpp"
 #include "gtx/string_cast.hpp"
 #include "gtx/hash.hpp"
 
@@ -79,6 +80,29 @@ namespace fbx {
         int numChildren = node->GetChildCount();
         std::cout << "Name: " << node->GetName() << " Number of children: " << numChildren << " Number of materials: " << node->GetMaterialCount() << std::endl;
 
+        // Get the global transform matrix of the node
+        FbxAMatrix nodeTransform = node->EvaluateGlobalTransform();
+
+        // Set the scale of the transform
+        FbxVector4 fbxScale = nodeTransform.GetS() * 0.01;
+        nodeTransform.SetS(fbxScale);
+
+        // Convert it to GLM
+        glm::mat4 transformMatrix;
+        FbxVector4 col0 = nodeTransform.GetRow(0);
+        transformMatrix[0] = glm::vec4(col0[0], col0[1], col0[2], col0[3]);
+        FbxVector4 col1 = nodeTransform.GetRow(1);
+        transformMatrix[1] = glm::vec4(col1[0], col1[1], col1[2], col1[3]);
+        FbxVector4 col2 = nodeTransform.GetRow(2);
+        transformMatrix[2] = glm::vec4(col2[0], col2[1], col2[2], col2[3]);
+        FbxVector4 col3 = nodeTransform.GetRow(3);
+        transformMatrix[3] = glm::vec4(col3[0], col3[1], col3[2], col3[3]);
+
+        // Reset the translation component so it is unaffected by scale
+        FbxVector4 fbxTranslation = nodeTransform.GetT() * 0.01;
+        glm::vec4 translation = glm::vec4(fbxTranslation[0], fbxTranslation[1], fbxTranslation[2], 1);
+        transformMatrix[3] = translation;
+
         // Check for materials
         uint32_t materialIndex = -1;
         if (node->GetMaterialCount() > 0) {
@@ -112,7 +136,7 @@ namespace fbx {
         }
         else {
             // Create the mesh data
-            outputScene.meshes.emplace_back(createMeshData(nodeMesh, materialIndex));
+            outputScene.meshes.emplace_back(createMeshData(nodeMesh, materialIndex, transformMatrix));
         }
 
         // If there is no children do not recurse
@@ -127,7 +151,7 @@ namespace fbx {
         }
     }
 
-    Mesh createMeshData(FbxMesh* inMesh, uint32_t materialIndex) {
+    Mesh createMeshData(FbxMesh* inMesh, uint32_t materialIndex, glm::mat4 transform) {
         Mesh outMesh;
 
         // Add the material index to the mesh data structure
@@ -174,10 +198,10 @@ namespace fbx {
             // Index has not been found so find the vertex and re-index accordingly
             else {
                 // Get the vertex position
-                glm::vec3 vertex = glm::vec3(fbxVertices[index][0], fbxVertices[index][1], fbxVertices[index][2]);
+                glm::vec3 vertex = transform * glm::vec4(fbxVertices[index][0], fbxVertices[index][1], fbxVertices[index][2], 1);
 
                 // Get the vertex normal
-                glm::vec3 normal = glm::vec3(normals[index][0], normals[index][1], normals[index][2]);
+                glm::vec3 normal = transform * glm::vec4(normals[index][0], normals[index][1], normals[index][2], 1);
 
                 // Get the vertex texture co-ordinate
                 glm::vec2 uv = glm::vec2(uvs[index][0], uvs[index][1]);
