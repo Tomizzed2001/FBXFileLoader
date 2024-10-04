@@ -19,6 +19,8 @@
 #pragma comment (lib, "C:\\Program Files\\Autodesk\\FBX\\FBX SDK\\2020.3.7\\lib\\x64\\release\\zlib-md.lib")
 #endif
 
+#define DEBUG_OUTPUTS false
+
 namespace fbx {
 
     Scene loadFBXFile(const char* filename) {
@@ -46,6 +48,8 @@ namespace fbx {
             throw std::runtime_error("Failed to initialise the importer.");
         }
 
+        std::cout << "Loading " << filename << std::endl;
+
         // Create a scene object to store the data from the .fbx file
         FbxScene* scene = FbxScene::Create(memoryManager, "Scene");
 
@@ -63,14 +67,18 @@ namespace fbx {
         Scene outputScene;
         std::unordered_map<std::string, std::uint32_t> materialMap;
         getChildren(rootNode, outputScene);
-
-        std::cout << std::endl;
-        std::cout << "Number of meshes: " << outputScene.meshes.size() << std::endl;
-        std::cout << "Number of materials: " << outputScene.materials.size() << std::endl;
-        std::cout << std::endl;
+        
+        if (DEBUG_OUTPUTS) {
+            std::cout << std::endl;
+            std::cout << "Number of meshes: " << outputScene.meshes.size() << std::endl;
+            std::cout << "Number of materials: " << outputScene.materials.size() << std::endl;
+            std::cout << std::endl;
+        }        
 
         // Destroy the SDK manager and all the other objects it was handling.
         memoryManager->Destroy();
+
+        std::cout << "Finished loading " << filename << std::endl;
 
         return outputScene;
     }
@@ -78,7 +86,9 @@ namespace fbx {
     void getChildren(FbxNode* node, Scene& outputScene) {
         // Get the number of children in the node
         int numChildren = node->GetChildCount();
-        std::cout << "Name: " << node->GetName() << " Number of children: " << numChildren << " Number of materials: " << node->GetMaterialCount() << std::endl;
+
+        if(DEBUG_OUTPUTS)
+            std::cout << "Name: " << node->GetName() << " Number of children: " << numChildren << " Number of materials: " << node->GetMaterialCount() << std::endl;
 
         // Get the global transform matrix of the node
         FbxAMatrix nodeTransform = node->EvaluateGlobalTransform();
@@ -121,18 +131,21 @@ namespace fbx {
                 materialIndex = outputScene.materials.size() - 1;
             }
 
-            std::cout << "Material name: " << outputScene.materials[materialIndex].materialName << " Material index: " << materialIndex << std::endl;
+            if (DEBUG_OUTPUTS)
+                std::cout << "Material name: " << outputScene.materials[materialIndex].materialName << " Material index: " << materialIndex << std::endl;
 
         }
         else {
-            std::cout << "Node has no material component." << std::endl;
+            if (DEBUG_OUTPUTS)
+                std::cout << "Node has no material component." << std::endl;
         }
 
 
         // Check if the node has a mesh component
         FbxMesh* nodeMesh = node->GetMesh();
         if (nodeMesh == NULL) {
-            std::cout << "Node has no mesh component." << std::endl;
+            if (DEBUG_OUTPUTS)
+                std::cout << "Node has no mesh component." << std::endl;
         }
         else {
             // Create the mesh data
@@ -280,7 +293,8 @@ namespace fbx {
 
         if (inMaterial->GetClassId().Is(FbxSurfacePhong::ClassId)) {
             /* DEBUG LINE */
-            std::cout << "Phong available" << std::endl;
+            if (DEBUG_OUTPUTS)
+                std::cout << "Phong available" << std::endl;
 
             // Get the material as a phong material
             FbxSurfacePhong* phongMaterial = ((FbxSurfacePhong*)inMaterial);
@@ -342,10 +356,12 @@ namespace fbx {
 
         }
         else if (inMaterial->GetClassId().Is(FbxSurfaceLambert::ClassId)) {
-            std::cout << "Lambertian available" << std::endl;
+            if (DEBUG_OUTPUTS)
+                std::cout << "Lambertian available" << std::endl;
         }
         else {
-            std::cout << "What is this" << std::endl;
+            if (DEBUG_OUTPUTS)
+                std::cout << "What is this" << std::endl;
         }
 
         return outMaterial;
@@ -353,7 +369,8 @@ namespace fbx {
 
     std::uint32_t createTexture(FbxFileTexture* texture, Scene& outputScene) {
         /* DEBUG LINE */
-        std::cout << texture->GetFileName() << std::endl;
+        if (DEBUG_OUTPUTS)
+            std::cout << texture->GetFileName() << std::endl;
 
         // Check if the diffuse texture already exists in the output scene
         int textureIndex = -1;
