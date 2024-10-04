@@ -12,7 +12,7 @@ namespace fbx {
 	/// </summary>
 	struct Texture
 	{
-		std::string	filePath;
+		const char*	filePath;
 	};
 
 	/// <summary>
