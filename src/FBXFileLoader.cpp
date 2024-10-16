@@ -94,7 +94,8 @@ namespace fbx {
         FbxAMatrix nodeTransform = node->EvaluateGlobalTransform();
 
         // Set the scale of the transform
-        FbxVector4 fbxScale = nodeTransform.GetS() * 0.01;
+        //FbxVector4 fbxScale = nodeTransform.GetS() * 0.01;
+        FbxVector4 fbxScale = nodeTransform.GetS();
         nodeTransform.SetS(fbxScale);
 
         // Convert it to GLM
@@ -109,31 +110,41 @@ namespace fbx {
         transformMatrix[3] = glm::vec4(col3[0], col3[1], col3[2], col3[3]);
 
         // Reset the translation component so it is unaffected by scale
-        FbxVector4 fbxTranslation = nodeTransform.GetT() * 0.01;
+        //FbxVector4 fbxTranslation = nodeTransform.GetT() * 0.01;
+        FbxVector4 fbxTranslation = nodeTransform.GetT();
         glm::vec4 translation = glm::vec4(fbxTranslation[0], fbxTranslation[1], fbxTranslation[2], 1);
         transformMatrix[3] = translation;
 
         // Check for materials
-        uint32_t materialIndex = -1;
+        std::vector<uint32_t> materialIndices;
         if (node->GetMaterialCount() > 0) {
-            // Only get the first material for now and apply it to the entire mesh.
-            FbxSurfaceMaterial* material = node->GetMaterial(0);
-            // Check if the material data has already been made
-            for (size_t i = 0; i < outputScene.materials.size(); i++) {
-                if (outputScene.materials[i].materialName == material->GetName()) {
-                    materialIndex = i;
-                    break;
+            for (int i = 0; i < node->GetMaterialCount(); i++) {
+                // Reset material index
+                uint32_t materialIndex = -1;
+                
+                // Only get the first material for now and apply it to the entire mesh.
+                FbxSurfaceMaterial* material = node->GetMaterial(i);
+
+                // Check if the material data has already been made
+                for (size_t i = 0; i < outputScene.materials.size(); i++) {
+                    if (outputScene.materials[i].materialName == material->GetName()) {
+                        materialIndex = i;
+                        break;
+                    }
                 }
-            }
-            // If material has not been found create one for it
-            if (materialIndex == -1) {
-                outputScene.materials.emplace_back(createMaterialData(material, outputScene));
-                materialIndex = outputScene.materials.size() - 1;
-            }
 
-            if (DEBUG_OUTPUTS)
-                std::cout << "Material name: " << outputScene.materials[materialIndex].materialName << " Material index: " << materialIndex << std::endl;
+                // If material has not been found create one for it
+                if (materialIndex == -1) {
+                    outputScene.materials.emplace_back(createMaterialData(material, outputScene));
+                    materialIndex = outputScene.materials.size() - 1;
+                }
 
+                // Add to the material indices
+                materialIndices.emplace_back(materialIndex);
+
+                if (DEBUG_OUTPUTS)
+                    std::cout << "Material name: " << outputScene.materials[materialIndex].materialName << " Material index: " << materialIndex << std::endl;
+            }
         }
         else {
             if (DEBUG_OUTPUTS)
@@ -144,12 +155,18 @@ namespace fbx {
         // Check if the node has a mesh component
         FbxMesh* nodeMesh = node->GetMesh();
         if (nodeMesh == NULL) {
-            if (DEBUG_OUTPUTS)
+            if (DEBUG_OUTPUTS) {
                 std::cout << "Node has no mesh component." << std::endl;
+            }
+            FbxLight* light = node->GetLight();
+            if (light != NULL) {
+                outputScene.lights.emplace_back(createLightData(light, transformMatrix));
+            }
         }
         else {
             // Create the mesh data
-            outputScene.meshes.emplace_back(createMeshData(nodeMesh, materialIndex, transformMatrix));
+            outputScene.meshes.emplace_back(createMeshData(nodeMesh, materialIndices, transformMatrix));
+            outputScene.meshes.back().materials = materialIndices;
         }
 
         // If there is no children do not recurse
@@ -164,11 +181,8 @@ namespace fbx {
         }
     }
 
-    Mesh createMeshData(FbxMesh* inMesh, uint32_t materialIndex, glm::mat4 transform) {
+    Mesh createMeshData(FbxMesh* inMesh, std::vector<uint32_t>& materialIndices, glm::mat4 transform) {
         Mesh outMesh;
-
-        // Add the material index to the mesh data structure
-        outMesh.materialIndex = materialIndex;
 
         // Get the number of triangles in the mesh and all the triangles
         int numTriangles = inMesh->GetPolygonCount();
@@ -179,12 +193,12 @@ namespace fbx {
 
         // Get the number of indices and all indices
         int numIndices = inMesh->GetPolygonVertexCount();
-        int* indices = inMesh->GetPolygonVertices();
+        int* fbxIndices = inMesh->GetPolygonVertices();
 
         // Get the normals for the mesh
-        FbxArray<FbxVector4> normals;
+        FbxArray<FbxVector4> fbxNormals;
         // Generate the normals (if there is none) and store them
-        if (!(inMesh->GenerateNormals() && inMesh->GetPolygonVertexNormals(normals))) {
+        if (!(inMesh->GenerateNormals() && inMesh->GetPolygonVertexNormals(fbxNormals))) {
             throw std::runtime_error("Failed to gather mesh normals");
         }
 
@@ -192,95 +206,133 @@ namespace fbx {
         // For now use only the first uv set in the mesh
         FbxStringList uvSets;
         inMesh->GetUVSetNames(uvSets);
-        FbxArray<FbxVector2> uvs;
-        if (!inMesh->GetPolygonVertexUVs(uvSets.GetStringAt(0), uvs)) {
+        FbxArray<FbxVector2> fbxUVs;
+        if (!inMesh->GetPolygonVertexUVs(uvSets.GetStringAt(0), fbxUVs)) {
             throw std::runtime_error("Failed to gather mesh texture coordinates.");
         }
 
-        // Check for duplicate vertices and re-index them
-        std::vector<int> seenIndex(numIndices, -1);
-        std::unordered_map<glm::vec3, std::uint32_t> seenVertices;
+        // Remove the translation component for the  
+        glm::mat4 normalTransform = transform;
+        normalTransform[3] = glm::vec4(0, 0, 0, 1);
 
-        for (int i = 0; i < numIndices; i++) {  // For each index
+        std::vector<glm::vec3> positions;
+        std::vector<glm::vec2> uvs;
+        std::vector<glm::vec3> normals;
+        std::vector<uint32_t> materialIDs;
+        std::vector<uint32_t> indices;
+
+        // For each index
+        for (int i = 0; i < numIndices; i++) {  
             // Get the index
-            int index = indices[i];
+            int index = fbxIndices[i];
+
+            // Get the vertex position
+            glm::vec3 vertex = glm::vec3(fbxVertices[index][0], fbxVertices[index][1], fbxVertices[index][2]);
+
+            // Get the vertex normal
+            glm::vec3 normal = glm::vec3(fbxNormals[i][0], fbxNormals[i][1], fbxNormals[i][2]);
+
+            // Get the vertex texture co-ordinate
+            glm::vec2 uv = glm::vec2(fbxUVs[i][0], fbxUVs[i][1]);
+
+            // Add the new vertex position and normal
+            positions.emplace_back(transform * glm::vec4(vertex, 1));
+            normals.emplace_back(normalTransform * glm::vec4(normal, 1));
+            uvs.emplace_back(uv);
+
+            // Store the newly assigned index
+            indices.emplace_back(i);
+        }
+
+        // Calculate the per polygon material ids
+        FbxLayerElementMaterial* materialElement = inMesh->GetElementMaterial();
+        for (int i = 0; i < inMesh->GetPolygonCount(); i++) {
+            // Material index for the current polygon
+            int materialIndex = materialElement->GetIndexArray().GetAt(i);
+            materialIDs.emplace_back(materialIndices[materialIndex]);
+            materialIDs.emplace_back(materialIndices[materialIndex]);
+            materialIDs.emplace_back(materialIndices[materialIndex]);
+        }
+
+        // Check if the mesh will benefit from redoing the indices
+        // Check for duplicate vertices and re-index them
+
+        
+        std::vector<int> seenIndex(indices.size(), -1);
+        std::unordered_map<glm::vec3, std::pair<uint32_t, uint32_t>> seenVertices;
+        std::vector<std::vector<std::uint32_t>> samePositionsArray;
+
+        for (size_t i = 0; i < indices.size(); i++) {
+            uint32_t index = indices[i];
+
             // If index has already been seen and re-indexed, use that one
             if (seenIndex[index] != -1) {
                 outMesh.vertexIndices.emplace_back(seenIndex[index]);
             }
             // Index has not been found so find the vertex and re-index accordingly
             else {
-                // Get the vertex position
-                glm::vec3 vertex = transform * glm::vec4(fbxVertices[index][0], fbxVertices[index][1], fbxVertices[index][2], 1);
-
-                // Get the vertex normal
-                glm::vec3 normal = transform * glm::vec4(normals[index][0], normals[index][1], normals[index][2], 1);
-
-                // Get the vertex texture co-ordinate
-                glm::vec2 uv = glm::vec2(uvs[index][0], uvs[index][1]);
-
                 // Check if that position has been seen before
-                if (seenVertices.find(vertex) == seenVertices.end()) {
-                    // Add the new vertex position and normal
-                    outMesh.vertexPositions.emplace_back(vertex);
-                    outMesh.vertexNormals.emplace_back(normal);
-                    outMesh.vertexTextureCoords.emplace_back(uv);
+                if (seenVertices.find(positions[index]) == seenVertices.end()) {
+                    // New position found
+                    // Add the new vertex position normal and uv
+                    outMesh.vertexPositions.emplace_back(glm::vec4(positions[index], 1));
+                    outMesh.vertexNormals.emplace_back(glm::vec4(normals[index], 1));
+                    outMesh.vertexTextureCoords.emplace_back(uvs[index]);
+                    outMesh.vertexMaterialIDs.emplace_back(materialIDs[index]);
 
                     // Store the newly assigned index
                     std::uint32_t newIndex = outMesh.vertexPositions.size() - 1;
                     outMesh.vertexIndices.emplace_back(newIndex);
 
                     // Add it to the map of seen vertices
-                    seenVertices[vertex] = newIndex;
+                    samePositionsArray.emplace_back(std::vector<std::uint32_t>());
+                    samePositionsArray[samePositionsArray.size() - 1].emplace_back(newIndex);
+                    
+                    seenVertices[positions[index]] = std::pair<uint32_t, uint32_t>(newIndex, samePositionsArray.size() - 1);
 
                     // Note that the index has been seen and remapped to a new index
                     seenIndex[index] = newIndex;
                 }
                 else {
+                    // Position already exists
                     // Get the already assigned index
-                    std::uint32_t newIndex = seenVertices.at(vertex);
+                    std::uint32_t newIndex = seenVertices.at(positions[index]).first;
+                    std::uint32_t vertexID = seenVertices.at(positions[index]).second;
 
-                    // Store the index
-                    outMesh.vertexIndices.emplace_back(newIndex);
+                    // Check that the uvs, normals and materials match up as well
+                    if ((outMesh.vertexTextureCoords[newIndex] != uvs[index]) || 
+                        outMesh.vertexNormals[newIndex] != normals[index] ||
+                        outMesh.vertexMaterialIDs[newIndex] != materialIDs[index]) {
+                        // If uvs or normals do not match
+                        // Add to index array as if its a new vertex
+                        outMesh.vertexPositions.emplace_back(glm::vec4(positions[index], 1));
+                        outMesh.vertexNormals.emplace_back(glm::vec4(normals[index], 1));
+                        outMesh.vertexTextureCoords.emplace_back(uvs[index]);
+                        outMesh.vertexMaterialIDs.emplace_back(materialIDs[index]);
 
-                    // Map the new index to the seen indices
-                    seenIndex[index] = newIndex;
+                        // Store the newly assigned index
+                        std::uint32_t oldIndex = newIndex;
+                        newIndex = outMesh.vertexPositions.size() - 1;
+                        outMesh.vertexIndices.emplace_back(newIndex);
+
+                        // Map the new index to the vertex
+                        samePositionsArray[vertexID].emplace_back(newIndex);
+
+                    }
+                    else {
+                        // Identical index so remap and store the index only
+                        // Store the index
+                        outMesh.vertexIndices.emplace_back(newIndex);
+
+                        // Map the new index to the seen indices
+                        seenIndex[index] = newIndex;
+                    }                    
                 }
             }
         }
-
+        
         // Calculate the per vertex tangents
         outMesh.vertexTangents = calculateTangents(outMesh.vertexIndices, outMesh.vertexPositions, outMesh.vertexTextureCoords, outMesh.vertexNormals);
-
-        /* DEBUG INFO
-        if (numTriangles < 31) {
-            std::cout << "Material Index: " << outMesh.materialIndex << std::endl;
-
-            std::cout << "Indices: ";
-            for (size_t i = 0; i < outMesh.vertexIndices.size(); i++) {
-                std::cout << outMesh.vertexIndices[i] << " ,";
-            }
-            std::cout << std::endl;
-
-            std::cout << "Positions: ";
-            for (size_t i = 0; i < outMesh.vertexPositions.size(); i++) {
-                std::cout << glm::to_string(outMesh.vertexPositions[i]) << ", ";
-            }
-            std::cout << std::endl;
-
-            std::cout << "Normals: ";
-            for (size_t i = 0; i < outMesh.vertexNormals.size(); i++) {
-                std::cout << glm::to_string(outMesh.vertexNormals[i]) << ", ";
-            }
-            std::cout << std::endl;
-
-            std::cout << "Texture Coords: ";
-            for (size_t i = 0; i < outMesh.vertexTextureCoords.size(); i++) {
-                std::cout << glm::to_string(outMesh.vertexTextureCoords[i]) << ", ";
-            }
-            std::cout << std::endl;
-        }
-        */
 
         return outMesh;
     }
@@ -305,7 +357,7 @@ namespace fbx {
                 FbxFileTexture* diffuseTexture = ((FbxFileTexture*)phongMaterial->Diffuse.GetSrcObject(0));
 
                 // Add the index to the material
-                outMaterial.diffuseTextureID = createTexture(diffuseTexture, outputScene);
+                outMaterial.diffuseTextureID = createTexture(diffuseTexture, outputScene.diffuseTextures);
 
                 // Check if the diffuse texture is alpha mapped
                 FbxTexture* alphaTexture = ((FbxTexture*)phongMaterial->Diffuse.GetSrcObject(0));
@@ -314,19 +366,29 @@ namespace fbx {
                 }
             }
             else {
+                // Place an empty texture in the array so it is aligned with material index
+                Texture emptyTexture;
+                emptyTexture.isEmpty = true;
+                outputScene.diffuseTextures.emplace_back(emptyTexture);
+
                 outMaterial.diffuseTextureID = 0xffffffff;
             }
 
-            // NOTE: The specular is the roughness and metalness it seems
+            // NOTE: The specular is the roughness and metalness
             // Check for specular texture
             if (phongMaterial->Specular.GetSrcObject(0)) {
                 // There is a specular texture
                 FbxFileTexture* specularTexture = ((FbxFileTexture*)phongMaterial->Specular.GetSrcObject(0));
 
                 // Add the index to the material
-                outMaterial.specularTextureID = createTexture(specularTexture, outputScene);
+                outMaterial.specularTextureID = createTexture(specularTexture, outputScene.specularTextures);
             }
             else {
+                // Place an empty texture in the array so it is aligned with material index
+                Texture emptyTexture;
+                emptyTexture.isEmpty = true;
+                outputScene.specularTextures.emplace_back(emptyTexture);
+
                 outMaterial.specularTextureID = 0xffffffff;
             }
 
@@ -336,9 +398,14 @@ namespace fbx {
                 FbxFileTexture* normalTexture = ((FbxFileTexture*)phongMaterial->NormalMap.GetSrcObject(0));
 
                 // Add the index to the material
-                outMaterial.normalTextureID = createTexture(normalTexture, outputScene);
+                outMaterial.normalTextureID = createTexture(normalTexture, outputScene.normalTextures);
             }
             else {
+                // Place an empty texture in the array so it is aligned with material index
+                Texture emptyTexture;
+                emptyTexture.isEmpty = true;
+                outputScene.normalTextures.emplace_back(emptyTexture);
+
                 outMaterial.normalTextureID = 0xffffffff;
             }
 
@@ -348,9 +415,14 @@ namespace fbx {
                 FbxFileTexture* emissiveTexture = ((FbxFileTexture*)phongMaterial->Emissive.GetSrcObject(0));
 
                 // Add the index to the material
-                outMaterial.emissiveTextureID = createTexture(emissiveTexture, outputScene);
+                outMaterial.emissiveTextureID = createTexture(emissiveTexture, outputScene.emissiveTextures);
             }
             else {
+                // Place an empty texture in the array so it is aligned with material index
+                Texture emptyTexture;
+                emptyTexture.isEmpty = true;
+                outputScene.emissiveTextures.emplace_back(emptyTexture);
+
                 outMaterial.emissiveTextureID = 0xffffffff;
             }
 
@@ -367,15 +439,15 @@ namespace fbx {
         return outMaterial;
     }
 
-    std::uint32_t createTexture(FbxFileTexture* texture, Scene& outputScene) {
+    std::uint32_t createTexture(FbxFileTexture* texture, std::vector<Texture>& textureSet) {
         /* DEBUG LINE */
         if (DEBUG_OUTPUTS)
             std::cout << texture->GetFileName() << std::endl;
 
-        // Check if the diffuse texture already exists in the output scene
+        // Check if the texture already exists in the output scene
         int textureIndex = -1;
-        for (size_t i = 0; i < outputScene.textures.size(); i++) {
-            if (outputScene.textures[i].filePath == texture->GetFileName()) {
+        for (size_t i = 0; i < textureSet.size(); i++) {
+            if (textureSet[i].filePath == texture->GetFileName()) {
                 return i;
             }
         }
@@ -384,12 +456,44 @@ namespace fbx {
         if (textureIndex == -1) {
             Texture newTexture;
             newTexture.filePath = texture->GetFileName();
-            outputScene.textures.emplace_back(newTexture);
+            textureSet.emplace_back(newTexture);
             // Remember the ID
-            textureIndex = outputScene.textures.size() - 1;
+            textureIndex = textureSet.size() - 1;
         }
 
         return textureIndex;
+    }
+
+    Light createLightData(FbxLight* inLight, glm::mat4 transform) {
+        Light outLight;
+
+        // The location of the light is simply defined by the transform matrix
+        outLight.location = transform[3];
+
+        // Get the light colour
+        FbxDouble3 colour = inLight->Color.Get();
+        outLight.colour = glm::vec3(colour[0], colour[1], colour[2]);
+
+        // Get the direction of the light if its a directional light
+        if (inLight->LightType.Get() == FbxLight::eSpot ||
+            inLight->LightType.Get() == FbxLight::eDirectional) {
+            // It is not a point light
+            outLight.isPointLight = false;
+
+            // Get rotation only from the transform
+            transform[3] = glm::vec4(0, 0, 0, 1);
+            outLight.direction = transform;
+        }
+        else {
+            // It is a point light
+            outLight.isPointLight = true;
+
+            // No direction so just set as the identity
+            outLight.direction = glm::mat4(1);
+        }
+
+
+        return outLight;
     }
 
     std::vector<glm::vec4> calculateTangents(
@@ -399,8 +503,11 @@ namespace fbx {
         std::vector<glm::vec3>& normals) {
 
         // Initialise an array to store all the different tangents for each vertex
-        std::vector<std::vector<glm::vec3>> vertexTriangleTangents(positions.size(), std::vector<glm::vec3>());
-        std::vector<std::vector<glm::vec3>> vertexTriangleBitangents(positions.size(), std::vector<glm::vec3>());
+        //std::vector<std::vector<glm::vec3>> vertexTriangleTangents(positions.size(), std::vector<glm::vec3>());
+        //std::vector<std::vector<glm::vec3>> vertexTriangleBitangents(positions.size(), std::vector<glm::vec3>());
+
+        std::vector<glm::vec3> vTangents(positions.size());
+        std::vector<glm::vec3> vBitangents(positions.size());
 
         // Visit each triangle in the mesh
         for (size_t i = 0; i < indices.size(); i += 3) {
@@ -427,36 +534,36 @@ namespace fbx {
             uvAC = uv2 - uv0;
 
             // Solve to find the unnormalized tangent vector of the triangle
-            glm::vec3 tangent = (1 / ((uvAB.x * uvAC.y) - (uvAC.x - uvAB.y))) * ((uvAC.y * AB) + (-uvAB.y * AC));
-            glm::vec3 bitangent = (1 / ((uvAB.x * uvAC.y) - (uvAC.x - uvAB.y))) * ((-uvAC.x * AB) + (uvAB.x * AC));
+            //glm::vec3 tangent = (1 / ((uvAB.x * uvAC.y) - (uvAC.x - uvAB.y))) * ((uvAC.y * AB) + (-uvAB.y * AC));
+            //glm::vec3 bitangent = (1 / ((uvAB.x * uvAC.y) - (uvAC.x - uvAB.y))) * ((-uvAC.x * AB) + (uvAB.x * AC));
 
+            float determinant = 1.0f / (uvAB.x * uvAC.y - uvAC.x * uvAB.y);
+            glm::vec3 tangent = determinant * (uvAC.y * AB - uvAB.y * AC);
+            glm::vec3 bitangent = determinant * (-uvAC.x * AB + uvAB.x * AC);
 
             // Tangent is the same for all vertices of the triangle so add to all of them
-            vertexTriangleTangents[indices[i]].emplace_back(tangent);
-            vertexTriangleTangents[indices[i + 1]].emplace_back(tangent);
-            vertexTriangleTangents[indices[i + 2]].emplace_back(tangent);
+            vTangents[indices[i]] += tangent;
+            vTangents[indices[i + 1]] += tangent;
+            vTangents[indices[i + 2]] += tangent;
 
-            vertexTriangleBitangents[indices[i]].emplace_back(bitangent);
-            vertexTriangleBitangents[indices[i + 1]].emplace_back(bitangent);
-            vertexTriangleBitangents[indices[i + 2]].emplace_back(bitangent);
+            vBitangents[indices[i]] += bitangent;
+            vBitangents[indices[i + 1]] += bitangent;
+            vBitangents[indices[i + 2]] += bitangent;
         }
 
         // Average the tangents for all vertices
         std::vector<glm::vec4> tangents;
-        for (size_t i = 0; i < vertexTriangleTangents.size(); i++) {
-            glm::vec3 tangent = glm::vec3(0, 0, 0);
-            glm::vec3 biTangent = glm::vec3(0, 0, 0);
-            for (size_t j = 0; j < vertexTriangleTangents[i].size(); j++) {
-                tangent = tangent + vertexTriangleTangents[i][j];
-                biTangent = biTangent + vertexTriangleBitangents[i][j];
-            }
+        for (size_t i = 0; i < vTangents.size(); i++) {
+            glm::vec3 normal = normals[i];
 
+            glm::vec3 tangent = vTangents[i];
+            glm::vec3 bitangent = vBitangents[i];
             // Orthogonalize the tangent and normalise the output
-            tangent = glm::normalize(tangent - normals[i] * glm::dot(normals[i], tangent));
+            tangent = glm::normalize(tangent - normal * glm::dot(normal, tangent));
 
             // Calculate the handedness of the bitangent
             int handedness;
-            if (glm::dot(glm::cross(normals[i], tangent), biTangent) < 0) {
+            if (glm::dot(glm::cross(normal, tangent), bitangent) < 0) {
                 handedness = -1;
             }
             else {
